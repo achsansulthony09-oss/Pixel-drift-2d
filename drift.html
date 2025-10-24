@@ -1,0 +1,512 @@
+# <!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pixel Drift — 2D Drift Car (Single File)</title>
+  <style>
+    :root{--bg:#071021;--panel:#0b1220;--accent:#ffcc00}
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;color:#e6eef8;background:linear-gradient(180deg,var(--bg),#0b1020)}
+    .center{display:flex;align-items:center;justify-content:center;height:100vh}
+    .game-wrap{width:960px;max-width:96%;margin:auto}
+    .card{background:linear-gradient(180deg,#071122,#071a2a);padding:14px;border-radius:12px;box-shadow:0 14px 40px rgba(0,0,0,0.6)}
+    canvas{display:block;width:100%;height:auto;border-radius:8px;background:#2f7937;image-rendering:pixelated}
+    .hud{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+    .hud .info{font-size:13px}
+    .hud .controls{font-size:12px;color:#cbd9ff}
+
+    /* menu */
+    .overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(rgba(2,6,23,0.6),rgba(2,6,23,0.85));backdrop-filter:blur(3px);z-index:40}
+    .menu{background:linear-gradient(180deg,#081428,#071022);padding:20px;border-radius:12px;min-width:720px;max-width:94%;color:#eaf6ff}
+    .menu h1{margin:0 0 6px 0}
+    .modes{display:flex;gap:10px;margin-top:10px}
+    .mode{flex:1;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);cursor:pointer}
+    .mode.selected{border-color:rgba(255,204,51,0.9);box-shadow:0 6px 20px rgba(255,204,51,0.06)}
+    .menu .row{display:flex;gap:10px;margin-top:12px;align-items:center}
+    .menu input[type=text]{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);color:#eaf6ff}
+    .menu button{padding:8px 12px;border-radius:8px;border:none;background:var(--accent);color:#071022;cursor:pointer}
+
+    /* leaderboard */
+    .leaderboard{margin-top:12px;background:rgba(255,255,255,0.02);padding:8px;border-radius:8px;max-height:180px;overflow:auto}
+    .lb-entry{display:flex;align-items:center;justify-content:space-between;padding:6px;border-bottom:1px dashed rgba(255,255,255,0.02)}
+    .lb-entry .left{display:flex;align-items:center;gap:8px}
+    .thumbnail{width:48px;height:36px;border-radius:6px;object-fit:cover;border:1px solid rgba(255,255,255,0.06)}
+
+    /* exit btn */
+    #exitBtn{position:fixed;right:18px;top:18px;padding:8px 10px;border-radius:8px;border:none;background:rgba(255,80,80,0.86);color:white;cursor:pointer;z-index:30}
+
+    /* replay mini canvas */
+    .replay-area{display:flex;gap:10px;align-items:center;margin-top:10px}
+    .mini-canvas{width:220px;height:140px;border-radius:8px;background:#203;image-rendering:pixelated}
+
+    /* toast */
+    .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;background:rgba(0,0,0,0.6);color:#fff;padding:8px 12px;border-radius:8px;z-index:60}
+
+    @media (max-width:780px){.modes{flex-direction:column}.menu{min-width:320px}}
+  </style>
+</head>
+<body>
+  <div class="center">
+    <div class="game-wrap">
+      <div class="card">
+        <canvas id="game" width="900" height="600" tabindex="0"></canvas>
+        <div class="hud">
+          <div class="info">
+            <div><strong id="speed">Speed: 0</strong> px/s</div>
+            <div style="font-size:12px">Angle: <span id="angle">0</span>° | Drift: <span id="drift">off</span></div>
+          </div>
+          <div class="controls">Controls: W / ↑ accelerate · S / ↓ brake · A / ← & D / → steer · Space drift · Double-click reset</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <button id="exitBtn" style="display:none">EXIT</button>
+
+  <div class="overlay" id="menu">
+    <div class="menu">
+      <h1>Pixel Drift — Lobby</h1>
+      <div style="display:flex;gap:12px;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:13px;opacity:.9">Player name</div>
+          <input id="playerName" type="text" placeholder="Nama kamu" />
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:13px;opacity:.9">Total Drift Points</div>
+          <div id="totalPoints" style="font-weight:700;font-size:18px">0</div>
+        </div>
+      </div>
+
+      <div class="modes">
+        <div class="mode" data-mode="circuit"><h3>Drift Circuit</h3><p style="margin:6px 0 0 0;font-size:13px">Sirkuit penuh tikungan tajam — lap berbasis putaran.</p></div>
+        <div class="mode" data-mode="park"><h3>Drift Park</h3><p style="margin:6px 0 0 0;font-size:13px">Arena bebas dengan cone — dapatkan drift time.</p></div>
+        <div class="mode" data-mode="challenge"><h3>Challenge Track</h3><p style="margin:6px 0 0 0;font-size:13px">Lintasan progresif — semakin sulit tiap level.</p></div>
+      </div>
+
+      <div class="row" style="margin-top:12px;justify-content:space-between;align-items:center">
+        <div style="display:flex;gap:8px;align-items:center">
+          <label><input type="checkbox" id="musicToggle" checked/> Music</label>
+          <label><input type="checkbox" id="sfxToggle" checked/> SFX</label>
+        </div>
+        <div>
+          <button id="startBtn">Mulai (pilih mode)</button>
+          <button id="clearLbBtn" style="background:#ff6b6b;margin-left:8px">Clear Leaderboard</button>
+        </div>
+      </div>
+
+      <div class="leaderboard" id="leaderboard">
+        <div style="font-weight:700;margin-bottom:6px">Leaderboard (session)</div>
+        <div id="lbList"></div>
+      </div>
+
+      <div class="replay-area">
+        <div>
+          <div style="font-size:13px;opacity:.9">Last Replay</div>
+          <canvas id="replayMini" class="mini-canvas" width="220" height="140"></canvas>
+        </div>
+        <div style="flex:1">
+          <button id="playReplayBtn">Play Replay</button>
+          <button id="saveReplayBtn" style="margin-left:8px">Save Replay</button>
+          <span style="margin-left:12px;font-size:13px;opacity:.9">(Replay disimpan session)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" style="display:none"></div>
+
+  <!-- audio assets (royalty-free public URLs) -->
+  <audio id="bgm" loop preload="auto"><source src="https://cdn.pixabay.com/audio/2023/03/02/audio_03d7cc9414.mp3" type="audio/mpeg"></audio>
+  <audio id="driftSfx" preload="auto"><source src="https://cdn.pixabay.com/audio/2022/03/15/audio_3d5cfb0f07.mp3" type="audio/mpeg"></audio>
+  <audio id="tireScreech" preload="auto"><source src="https://cdn.pixabay.com/audio/2022/03/10/audio_0e99ff3e8c.mp3" type="audio/mpeg"></audio>
+  <audio id="finishSfx" preload="auto"><source src="https://cdn.pixabay.com/audio/2022/03/09/audio_46a6ec35dc.mp3" type="audio/mpeg"></audio>
+
+  <script>
+  // --------- CONFIG & STORAGE KEYS ----------
+  const KEY_LB = 'pixelDrift_leaderboard_session'; // sessionStorage
+  const KEY_TOTAL = 'pixelDrift_totalpoints_session';
+  const KEY_REPLAY = 'pixelDrift_lastreplay_session';
+  const KEY_THUMB = 'pixelDrift_thumb_session';
+
+  // DOM
+  const menu = document.getElementById('menu');
+  const startBtn = document.getElementById('startBtn');
+  const modes = document.querySelectorAll('.mode');
+  const playerNameIn = document.getElementById('playerName');
+  const totalPointsEl = document.getElementById('totalPoints');
+  const lbList = document.getElementById('lbList');
+  const clearLbBtn = document.getElementById('clearLbBtn');
+  const replayMini = document.getElementById('replayMini');
+  const playReplayBtn = document.getElementById('playReplayBtn');
+  const saveReplayBtn = document.getElementById('saveReplayBtn');
+  const exitBtn = document.getElementById('exitBtn');
+  const musicToggle = document.getElementById('musicToggle');
+  const sfxToggle = document.getElementById('sfxToggle');
+  const toast = document.getElementById('toast');
+
+  // canvas
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  // mini replay canvas
+  const rctx = replayMini.getContext('2d');
+
+  // audio
+  const bgm = document.getElementById('bgm');
+  const driftSfx = document.getElementById('driftSfx');
+  const tireScreech = document.getElementById('tireScreech');
+  const finishSfx = document.getElementById('finishSfx');
+
+  // state
+  let selectedMode = null;
+  let running = false;
+  let keys = {};
+  let state = {
+    car: {x: W/2, y: H/2 + 150, angle: -Math.PI/2, velX:0, velY:0, length:36, width:18, color:'#ffd24d'},
+    drift: false,
+    timer:0,
+    lap:0,
+    checkpoint:false,
+    parkDriftTime:0,
+    challengeLevel:1,
+    particles:[],
+    driftScoreSession:0,
+    combo:0,
+    replayFrames:[] // store frames {x,y,angle}
+  };
+
+  // load session data
+  function loadSession(){
+    const lb = sessionStorage.getItem(KEY_LB);
+    if(lb) renderLeaderboard(JSON.parse(lb));
+    const total = sessionStorage.getItem(KEY_TOTAL);
+    totalPointsEl.textContent = total ? sessionStorage.getItem(KEY_TOTAL) : '0';
+    const thumb = sessionStorage.getItem(KEY_THUMB);
+    if(thumb) drawMiniFromDataURL(thumb);
+    const replay = sessionStorage.getItem(KEY_REPLAY);
+    if(replay) {
+      // show play replay enabled
+      playReplayBtn.disabled = false;
+    } else playReplayBtn.disabled = true;
+  }
+
+  loadSession();
+
+  // mode selection UI
+  modes.forEach(m=>m.addEventListener('click', ()=>{
+    modes.forEach(x=>x.classList.remove('selected'));
+    m.classList.add('selected');
+    selectedMode = m.dataset.mode;
+    startBtn.textContent = 'Mulai — ' + (selectedMode || 'pilih mode');
+  }));
+
+  startBtn.addEventListener('click', ()=>{
+    if(!selectedMode){ showToast('Pilih mode dulu'); return; }
+    startGame(selectedMode);
+    hideMenu();
+  });
+
+  clearLbBtn.addEventListener('click', ()=>{
+    sessionStorage.removeItem(KEY_LB);
+    sessionStorage.removeItem(KEY_THUMB);
+    sessionStorage.removeItem(KEY_REPLAY);
+    sessionStorage.removeItem(KEY_TOTAL);
+    totalPointsEl.textContent = '0';
+    renderLeaderboard([]);
+    drawMiniClear();
+    showToast('Leaderboard di-reset (session)');
+  });
+
+  playReplayBtn.addEventListener('click', ()=>{
+    const data = sessionStorage.getItem(KEY_REPLAY);
+    if(!data){ showToast('Tidak ada replay'); return; }
+    const replay = JSON.parse(data);
+    playReplay(replay);
+  });
+
+  saveReplayBtn.addEventListener('click', ()=>{
+    const r = state.replayFrames;
+    if(!r || r.length===0){ showToast('Belum ada replay untuk disimpan'); return; }
+    sessionStorage.setItem(KEY_REPLAY, JSON.stringify(r));
+    // draw thumbnail of last frame
+    const thumb = canvas.toDataURL('image/png');
+    sessionStorage.setItem(KEY_THUMB, thumb);
+    drawMiniFromDataURL(thumb);
+    playReplayBtn.disabled = false;
+    showToast('Replay & thumbnail tersimpan di session');
+  });
+
+  exitBtn.addEventListener('click', ()=>{
+    // smooth fade to menu
+    stopGame();
+    showMenu();
+  });
+
+  // input
+  window.addEventListener('keydown', e=>{ keys[e.key.toLowerCase()] = true; if(e.key===' '){ e.preventDefault(); } if(running && musicToggle.checked && bgm.paused) try{ bgm.play(); }catch(e){} });
+  window.addEventListener('keyup', e=>{ keys[e.key.toLowerCase()] = false; });
+
+  // helper toast
+  let toastTimer = null;
+  function showToast(txt, t=1800){ clearTimeout(toastTimer); toast.textContent = txt; toast.style.display='block'; toastTimer=setTimeout(()=>toast.style.display='none', t); }
+
+  function hideMenu(){ menu.style.display='none'; exitBtn.style.display='block'; }
+  function showMenu(){ menu.style.display='flex'; exitBtn.style.display='none'; }
+
+  // Game start/stop
+  function startGame(mode){
+    // reset state for mode
+    state = {...state, car:{x:W/2,y:H/2+150,angle:-Math.PI/2,velX:0,velY:0,length:36,width:18,color:'#ffd24d'},drift:false,timer:0,lap:0,checkpoint:false,parkDriftTime:0,particles:[],driftScoreSession:0,combo:0,replayFrames:[]};
+    running = true;
+    if(musicToggle.checked){ try{ bgm.currentTime=0; bgm.volume=0.28; bgm.play(); }catch(e){} }
+    // generate cones/obstacles if needed
+    if(mode==='park') generateCones(); else cones = [];
+    if(mode==='challenge') generateObstacles(); else obstacles = [];
+    requestAnimationFrame(loop);
+  }
+
+  function stopGame(){ running = false; try{ bgm.pause(); }catch(e){} }
+
+  // simple structures
+  let cones = [];
+  function generateCones(){ cones = []; for(let i=0;i<12;i++){ cones.push({x:120+Math.random()*(W-240), y:120+Math.random()*(H-240), r:6}); } }
+  let obstacles = [];
+  function generateObstacles(){ obstacles = []; for(let i=0;i<6;i++){ const a=Math.random()*Math.PI*2; const rx=240,ry=160; const x=W/2+rx*Math.cos(a); const y=H/2+ry*Math.sin(a); obstacles.push({x,y,r:12}); } }
+
+  // physics tuned for arcade drift
+  function updatePhysics(dt){
+    const car = state.car;
+    const forward = keys['w']||keys['arrowup'];
+    const backward = keys['s']||keys['arrowdown'];
+    const left = keys['a']||keys['arrowleft'];
+    const right = keys['d']||keys['arrowright'];
+    const hand = !!keys[' '];
+
+    // acceleration
+    let accel = 0; if(forward) accel += 420; if(backward) accel -= 320;
+
+    // project velocity
+    const headingX = Math.cos(car.angle), headingY = Math.sin(car.angle);
+    const forwardVel = car.velX*headingX + car.velY*headingY;
+
+    const targetForward = forwardVel + accel*dt*0.8;
+    const maxSpeed = 420;
+    const newF = Math.max(Math.min(targetForward, maxSpeed), -maxSpeed*0.6);
+
+    // lateral
+    const rightX = Math.cos(car.angle + Math.PI/2), rightY = Math.sin(car.angle + Math.PI/2);
+    const lateralVel = car.velX*rightX + car.velY*rightY;
+
+    const grip = (isOnRoad(car.x,car.y)?1.0:0.28) * (hand?0.28:1.0);
+    const newLat = lateralVel * Math.max(0, 1 - grip*dt*(hand?0.7:3.0));
+
+    car.velX = headingX*newF + rightX*newLat;
+    car.velY = headingY*newF + rightY*newLat;
+
+    // steering - arcade: friendly steering that's effective even at lower speeds
+    const speedNow = Math.hypot(car.velX, car.velY);
+    const steerInput = (right?1:0) - (left?1:0);
+    const steerStrength = 2.8 * steerInput * Math.min(1, speedNow/80) * (hand?1.6:1);
+    car.angle += steerStrength*dt;
+
+    // gentle auto-countersteer when drifting (arcade assist)
+    if(hand){ car.angle += -steerInput*0.6*dt; }
+
+    // friction
+    const friction = 1.2 + (hand?0.2:0);
+    car.velX *= Math.max(0, 1 - friction*dt*(isOnRoad(car.x,car.y)?1.2:1));
+    car.velY *= Math.max(0, 1 - friction*dt*(isOnRoad(car.x,car.y)?1.2:1));
+
+    // update pos
+    car.x += car.velX*dt; car.y += car.velY*dt;
+
+    // boundary
+    if(car.x<16){ car.x=16; car.velX*=-0.4; }
+    if(car.x>W-16){ car.x=W-16; car.velX*=-0.4; }
+    if(car.y<16){ car.y=16; car.velY*=-0.4; }
+    if(car.y>H-16){ car.y=H-16; car.velY*=-0.4; }
+
+    // drift detection (handbrake + lateral velocity)
+    const lateralSpeed = Math.abs(lateralVel);
+    if(hand && speedNow>18 && lateralSpeed>12){
+      // drifting
+      state.drift = true;
+      state.combo += dt;
+      state.driftScoreSession += Math.round(10 * dt * Math.min(4, lateralSpeed/20));
+      // spawn more smoke
+      for(let i=0;i<2;i++) spawnParticle(car.x - headingX*10 + (Math.random()-0.5)*6, car.y - headingY*10 + (Math.random()-0.5)*6,'smoke');
+      // SFX
+      if(sfxToggle.checked){ try{ tireScreech.currentTime = 0.02; tireScreech.volume = 0.5; tireScreech.play(); }catch(e){} }
+      // record replay frames more often during motion
+      recordFrame();
+    } else {
+      if(state.drift && state.combo>0){
+        // drift ended, award combo bonus
+        const comboPoints = Math.round(state.combo*25);
+        state.driftScoreSession += comboPoints;
+        showFloatingText('+'+comboPoints+' combo', car.x, car.y-30);
+      }
+      state.drift = false; state.combo = 0;
+      // still record occasional frames
+      if(Math.random()<0.02) recordFrame();
+    }
+
+    // lap detection simplified for circuit/challenge
+    if(selectedMode!=='park'){
+      if(car.y < H/2 - 220 && !state.checkpoint) state.checkpoint = true;
+      if(car.y > H/2 + 220 && state.checkpoint){ state.lap++; state.timer = 0; state.checkpoint = false; if(sfxToggle.checked) finishSfx.play(); if(selectedMode==='challenge'){ state.challengeLevel++; generateObstacles(); } }
+    }
+
+    // cones collisions
+    if(selectedMode==='park'){
+      for(const c of cones){ const dx=car.x-c.x, dy=car.y-c.y; if(Math.hypot(dx,dy) < 18){ c.x += dx*0.3; c.y += dy*0.3; spawnParticle(c.x,c.y,'spark'); car.velX*=0.6; car.velY*=0.6; } }
+    }
+    if(selectedMode==='challenge'){
+      for(const o of obstacles){ const dx=car.x-o.x, dy=car.y-o.y; if(Math.hypot(dx,dy) < o.r+10){ car.velX*=-0.35; car.velY*=-0.35; spawnParticle(car.x,car.y,'spark'); } }
+    }
+
+    // store into replayFrames
+    // cap length to avoid memory bloat
+    if(state.replayFrames.length>4000) state.replayFrames.shift();
+  }
+
+  function isOnRoad(x,y){
+    if(selectedMode==='circuit') return isOnRoadCircuit(x,y);
+    if(selectedMode==='challenge') return isOnRoadChallenge(x,y);
+    return isOnRoadPark(x,y);
+  }
+
+  // road helpers similar to earlier
+  function isOnRoadCircuit(x,y){ const cx=x-W/2, cy=y-H/2, rx=300, ry=200; const ang=Math.atan2(cy,cx); const modifier=1+0.12*Math.sin(4*ang + (cx*0.005)); const norm=Math.sqrt((cx*cx)/(rx*rx*modifier)+(cy*cy)/(ry*ry)); const roadHalf=46; return Math.abs((norm-1)*((rx+ry)/2))<roadHalf; }
+  function isOnRoadChallenge(x,y){ const cx=x-W/2, cy=y-H/2, rx=340-state.challengeLevel*12 || 340, ry=220-state.challengeLevel*8||220; const norm=Math.sqrt((cx*cx)/(rx*rx)+(cy*cy)/(ry*ry)); const roadHalf=56-state.challengeLevel*6 || 56; return Math.abs((norm-1)*((rx+ry)/2))<roadHalf; }
+  function isOnRoadPark(x,y){ const pad=80; return (x>pad && x<W-pad && y>pad && y<H-pad); }
+
+  // particles
+  function spawnParticle(x,y,type){ const life = type==='smoke'?0.7+Math.random()*0.6:0.18+Math.random()*0.2; state.particles.push({x,y,dx:(Math.random()-0.5)*30,dy:(Math.random()-0.5)*10,life,age:0,type}); }
+
+  function updateParticles(dt){ for(let i=state.particles.length-1;i>=0;i--){ const p=state.particles[i]; p.age+=dt; p.x+=p.dx*dt; p.y+=p.dy*dt; if(p.age>=p.life) state.particles.splice(i,1); } }
+
+  function recordFrame(){ state.replayFrames.push({x:state.car.x,y:state.car.y,angle:state.car.angle}); }
+
+  // replay playback (mini canvas)
+  function drawMiniFromDataURL(dataURL){ const img=new Image(); img.onload=()=>{ rctx.clearRect(0,0,replayMini.width,replayMini.height); rctx.drawImage(img,0,0,replayMini.width,replayMini.height); }; img.src=dataURL; }
+  function drawMiniClear(){ rctx.clearRect(0,0,replayMini.width,replayMini.height); rctx.fillStyle='#0b3'; rctx.fillRect(0,0,replayMini.width,replayMini.height); }
+
+  function playReplay(frames){
+    // show on mini canvas using scaled coords
+    let i=0; const total=frames.length; const iv=setInterval(()=>{
+      rctx.clearRect(0,0,replayMini.width,replayMini.height);
+      // background
+      rctx.fillStyle='#123'; rctx.fillRect(0,0,replayMini.width,replayMini.height);
+      // draw simple track indicator
+      rctx.fillStyle='#1b5'; rctx.fillRect(10,10,replayMini.width-20,replayMini.height-20);
+      if(i<total){ const f=frames[i]; // draw car
+        const px = (f.x / W) * replayMini.width; const py = (f.y / H) * replayMini.height;
+        rctx.save(); rctx.translate(px,py); rctx.rotate(f.angle); rctx.fillStyle='#ffd24d'; rctx.fillRect(-6,-4,12,8); rctx.restore(); i++; }
+      else clearInterval(iv);
+    }, 30);
+  }
+
+  // leaderboard
+  function renderLeaderboard(arr){ lbList.innerHTML=''; if(!arr || arr.length===0){ lbList.innerHTML='<div style="opacity:.7">(kosong)</div>'; return; } arr.sort((a,b)=>b.score-a.score); arr.forEach((e,idx)=>{
+    const div=document.createElement('div'); div.className='lb-entry';
+    const left=document.createElement('div'); left.className='left';
+    const img=document.createElement('img'); img.className='thumbnail'; img.src=e.thumb || ''; img.alt='thumb'; img.addEventListener('click', ()=>{ if(e.thumb){ const a=document.createElement('a'); a.href=e.thumb; a.download=(e.name||'untitled')+'_drift.png'; a.click(); } });
+    const meta=document.createElement('div'); meta.innerHTML=`<div style="font-weight:700">${e.name||'Anonymous'}</div><div style="font-size:12px;opacity:0.85">${e.score} pts</div>`;
+    left.appendChild(img); left.appendChild(meta);
+    const right=document.createElement('div'); right.textContent=new Date(e.ts).toLocaleTimeString(); div.appendChild(left); div.appendChild(right); lbList.appendChild(div);
+  }); }
+
+  function pushLeaderboardEntry(name,score,thumbDataURL){ const raw=sessionStorage.getItem(KEY_LB); const arr= raw? JSON.parse(raw):[]; arr.push({name:name||'Anonymous', score:score||0, thumb:thumbDataURL||'', ts:Date.now()}); sessionStorage.setItem(KEY_LB, JSON.stringify(arr)); renderLeaderboard(arr); }
+
+  // floating text for combos
+  let floatTexts=[];
+  function showFloatingText(txt,x,y){ floatTexts.push({txt,x,y,age:0}); }
+  function updateFloatTexts(dt){ for(let i=floatTexts.length-1;i>=0;i--){ const f=floatTexts[i]; f.age+=dt; if(f.age>1.2) floatTexts.splice(i,1); } }
+
+  // main loop
+  let last=performance.now();
+  function loop(now){ if(!running) return; const dt=Math.min(0.03,(now-last)/1000); last=now; state.timer += dt; updatePhysics(dt); updateParticles(dt); updateFloatTexts(dt); render(); requestAnimationFrame(loop); }
+
+  // render
+  function render(){ ctx.clearRect(0,0,W,H);
+    // background and track per mode
+    if(!selectedMode || selectedMode==='circuit'){ drawCircuit(); }
+    if(selectedMode==='park') drawPark();
+    if(selectedMode==='challenge') drawChallenge();
+
+    // cones/obstacles
+    if(selectedMode==='park'){ for(const c of cones){ ctx.fillStyle='#ff6b6b'; ctx.fillRect(c.x-4,c.y-6,8,8); } }
+    if(selectedMode==='challenge'){ for(const o of obstacles){ ctx.fillStyle='#7a7a7a'; ctx.beginPath(); ctx.arc(o.x,o.y,o.r,0,Math.PI*2); ctx.fill(); } }
+
+    // particles
+    for(const p of state.particles){ const t=p.age/p.life; if(p.type==='smoke'){ ctx.globalAlpha = 0.7*(1-t); ctx.fillStyle='rgba(40,40,40,1)'; ctx.beginPath(); ctx.arc(p.x, p.y - t*8, 6*(1-t)+2,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1; } else { ctx.globalAlpha = 0.95*(1-t); ctx.fillStyle='rgba(255,200,100,1)'; ctx.fillRect(p.x,p.y,2,2); ctx.globalAlpha=1; } }
+
+    // car
+    const c = state.car; ctx.save(); ctx.translate(c.x,c.y); ctx.rotate(c.angle); ctx.imageSmoothingEnabled=false; // pixel car
+    ctx.fillStyle=c.color; ctx.fillRect(-c.length/2, -c.width/2, c.length, c.width); ctx.fillStyle='#fffbeb'; ctx.fillRect(-c.length/6, -c.width/2+3, c.length/3, Math.max(2,Math.floor(c.width/3))); ctx.restore();
+
+    // UI overlays
+    document.getElementById('speed').textContent = 'Speed: ' + Math.round(Math.hypot(c.velX,c.velY));
+    document.getElementById('angle').textContent = Math.round((c.angle*180/Math.PI+360)%360);
+    document.getElementById('drift').textContent = state.drift? 'on' : 'off';
+
+    // float texts
+    for(const f of floatTexts){ ctx.globalAlpha = 1 - (f.age/1.2); ctx.fillStyle = 'rgba(255,220,120,1)'; ctx.font='14px monospace'; ctx.fillText(f.txt, f.x, f.y - f.age*30); ctx.globalAlpha=1; }
+
+    // HUD small
+    ctx.fillStyle='rgba(0,0,0,0.18)'; ctx.fillRect(8,8,220,56);
+    ctx.fillStyle='#e6eef8'; ctx.font='12px monospace'; ctx.fillText('Pixel Drift 2D (Arcade)', 14, 26); ctx.fillStyle='#c5e1ff'; ctx.fillText('W ↑ accel  S ↓ brake  A/D steer  Space drift', 14, 44);
+  }
+
+  function drawCircuit(){ ctx.fillStyle='#6aa84f'; ctx.fillRect(0,0,W,H); const img=ctx.getImageData(0,0,W,H); const data=img.data; for(let y=0;y<H;y+=4){ for(let x=0;x<W;x+=4){ if(isOnRoadCircuit(x,y)){ const shade=38+Math.floor(40*Math.abs(Math.sin((x*0.02)+(y*0.01)))); const i=(y*W+x)*4; data[i]=shade; data[i+1]=shade; data[i+2]=shade+8; data[i+3]=255; } }} ctx.putImageData(img,0,0); ctx.strokeStyle='rgba(255,255,255,0.9)'; ctx.lineWidth=2; ctx.setLineDash([12,10]); ctx.beginPath(); const cx=W/2, cy=H/2, rx=300, ry=200; for(let t=0;t<=2*Math.PI+0.001;t+=0.02){ const x=cx+rx*Math.cos(t); const y=cy+ry*Math.sin(t); if(t===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); } ctx.stroke(); ctx.setLineDash([]); }
+  function drawPark(){ ctx.fillStyle='#5fa24f'; ctx.fillRect(0,0,W,H); ctx.fillStyle='rgba(0,0,0,0.06)'; ctx.fillRect(80,80,W-160,H-160); ctx.strokeStyle='rgba(255,255,255,0.06)'; ctx.lineWidth=1; ctx.setLineDash([8,8]); ctx.strokeRect(90,90,W-180,H-180); ctx.setLineDash([]); }
+  function drawChallenge(){ ctx.fillStyle='#6aa84f'; ctx.fillRect(0,0,W,H); const img=ctx.getImageData(0,0,W,H); const data=img.data; for(let y=0;y<H;y+=4){ for(let x=0;x<W;x+=4){ if(isOnRoadChallenge(x,y)){ const shade=36; const i=(y*W+x)*4; data[i]=shade; data[i+1]=shade; data[i+2]=shade+10; data[i+3]=255; } }} ctx.putImageData(img,0,0); ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.fillRect(0,H/2+220-2,W,4); ctx.fillStyle='rgba(255,200,60,0.12)'; ctx.fillRect(W/2-150,H/2-220,300,440); }
+
+  // replay saving on session end: push to leaderboard and add total points
+  function endSessionAndRecord(){
+    // push leaderboard entry
+    const name = playerNameIn.value || 'Anon';
+    const score = state.driftScoreSession || 0;
+    // read existing lb
+    const raw = sessionStorage.getItem(KEY_LB); const arr = raw? JSON.parse(raw):[];
+    // add entry with thumbnail if exists
+    const thumb = sessionStorage.getItem(KEY_THUMB) || canvas.toDataURL('image/png');
+    arr.push({name,score,thumb,ts:Date.now()});
+    sessionStorage.setItem(KEY_LB, JSON.stringify(arr));
+    renderLeaderboard(arr);
+    // add to total
+    const totRaw = sessionStorage.getItem(KEY_TOTAL); const tot = totRaw? Number(totRaw):0; const newTot = tot + score; sessionStorage.setItem(KEY_TOTAL, String(newTot)); totalPointsEl.textContent = String(newTot);
+    showToast('Skor disimpan ke leaderboard session: +' + score);
+  }
+
+  // auto-save screenshot if new top score
+  function checkAndSaveTopScore(){ const raw = sessionStorage.getItem(KEY_LB); const arr = raw? JSON.parse(raw):[]; let top = 0; for(const e of arr) if(e.score>top) top=e.score; if(state.driftScoreSession>top){ const thumb=canvas.toDataURL('image/png'); sessionStorage.setItem(KEY_THUMB, thumb); showToast('New top score! Thumbnail disimpan'); } }
+
+  // on game stop
+  function finishRun(){ stopGame(); checkAndSaveTopScore(); endSessionAndRecord(); // allow replay save button
+    sessionStorage.setItem(KEY_REPLAY, JSON.stringify(state.replayFrames)); playReplayBtn.disabled=false; sessionStorage.setItem(KEY_THUMB, canvas.toDataURL('image/png')); drawMiniFromDataURL(sessionStorage.getItem(KEY_THUMB) || ''); }
+
+  // allow double-click reset
+  canvas.addEventListener('dblclick', ()=>{ state.car.x=W/2; state.car.y=H/2+150; state.car.velX=0; state.car.velY=0; state.particles=[]; state.replayFrames=[]; showToast('Reset posisi mobil'); });
+
+  // small UI helpers
+  function showToastOnce(m){ showToast(m); }
+
+  // Save replay automatically on pressing 'End' (key 'e') for testing
+  window.addEventListener('keydown', e=>{ if(e.key.toLowerCase()==='e'){ finishRun(); } });
+
+  // initial render of leaderboard
+  const initLbRaw = sessionStorage.getItem(KEY_LB); renderLeaderboard(initLbRaw?JSON.parse(initLbRaw):[]);
+  totalPointsEl.textContent = sessionStorage.getItem(KEY_TOTAL) || '0';
+  const initThumb = sessionStorage.getItem(KEY_THUMB); if(initThumb) drawMiniFromDataURL(initThumb);
+
+  // small helper to download thumb from lb entries will be attached to thumbnail click in renderLeaderboard
+
+  // expose some quick debug text
+  console.log('Pixel Drift ready. Press E to finish run (for testing). Save Replay to store last run in session.');
+  </script>
+</body>
+</html>
